@@ -15,4 +15,5 @@ The primary functions of SEP_D.py include background subtraction, object detecti
 Additionally, for those who want to perform analyses such as creating intensity traces, generating fluorescence decay traces, fitting decay traces, and examining results, the rest of the 512^2_####.py script can be used.
 
 Please note that this project is still in the early stages and is a work in progress.
+
 [The code is written during the 1.51 version of the SPAD512² software and used for 8-bit intensity and 8-bit gated data]
