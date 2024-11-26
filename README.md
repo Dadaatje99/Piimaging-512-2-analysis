@@ -23,7 +23,7 @@ Please note that this project is still in the early stages and is a work in prog
 This code should be installed on the computer used for performing the measurements.
 
 ### How to Use the Code
-1. Ensure the code is installed and accessible on the measurement computer.  
+1. Ensure the code is installed on the measurement computer.  
 2. To run the code, simply provide the correct path to the directory where the data is stored.  
 3. Always use the **single measurement** option to ensure that all images are placed into one folder.  
 
@@ -38,12 +38,59 @@ project-directory/
 │       ├── acq00000
 │       └── acq00001
 ```
-To process all acquisitions at once, set the path to:  `path= r'data/intensity_images/' ` All output files will be stored in the same folder, using the following naming conventions: `meta_acqxxxxx.json` & `movie_arr_acqxxxxx.npy`
+To process all acquisitions at once, set the path to:  `path= r'project-directory/data/intensity_images/' ` All output files will be stored in the same folder, using the following naming conventions: `meta_acqxxxxx.json` & `movie_arr_acqxxxxx.npy`
+
+## `512^2_####.py`
+This code should be installed on the computer used for performing data analysis.
+
+### How to Use the Code
+1. Ensure the code is installed on the computer.
+2. Provide the Data Path: Set the correct path to the directory where the data is stored. For example: `path= r'project-directory/data/intensity_images/' `
+3. Run the code and specify the index you wish to access.
+4. Now we get the following 4 in return:
+   - **meta_raw** contains the raw metadata information.
+   - **meta** contains the 'most important' values extracted from the metadata.
+   - **movie_arr**  is a 3D array of shape (nframes, xsize, ysize) containing all the data.
+   - **image** is a 2D array of shape (xsize, ysize) representing the sum of the frames in the 3D array.
+
+You can write your own code to further analyze the data from here.
+To create intensity traces or fluorescence decay traces, the rest of the code can be used.
 
 ## `SEP_D.py`
+`SEP_D.py` is a standalone script designed for object detection on various types of measurements. It has been successfully tested on 2D images from different devices, including:
+- Single-Photon Avalanche Diode array (SPAD512)
+- Electron-Multiplying Charge-Coupled Device (EMCCD)
+- Atomic Force Microscopy (AFM)
+- Transmission Electron Microscopy (TEM)
 
+The script can detect multiple objects and determine the pixels belonging to each object. It is based on the Source Extraction and Photometry (SEP) framework, with several enhancements such as plotting closeups of the objects and different systems for object detection (currently, only one system is implemented).
 
-##`512^2_####.py`
+`SEP_D.py` is neccesary to create create intensity traces and fluorescence decay traces in the `512^2_####.py` script.
+
+### How to Install the Code
+1. Ensure the code is installed on the computer.
+2. Import the `sys` module.
+
+    ```python
+    import sys
+    ```
+
+3. Add the directory containing `SEP_D.py` to the system path.
+   Replace the path with the actual path to your `SEP_D.py` file.
+
+    ```python
+    # Add the directory containing SEP_D.py
+    sys.path.append('D:/Universiteit/5.1-6.2 Master Thesis/Experiments/SEP_D/')  # Replace with your actual path
+    ```
+
+4. Import all functions from `SEP_D.py`.
+
+    ```python
+    from SEP_D import *  # Import all functions
+    ```
+### How to Use the Code
+The rest of the `512^2_####.py` script shows the basic usage.
+
 
 
 ### references
