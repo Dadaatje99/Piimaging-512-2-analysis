@@ -80,7 +80,7 @@ The script can detect multiple objects and determine the pixels belonging to eac
 
     ```python
     # Add the directory containing SEP_D.py
-    sys.path.append('D:/Universiteit/5.1-6.2 Master Thesis/Experiments/SEP_D/')  # Replace with your actual path
+    sys.path.append('D:/project-directory/SEP_D_map/')  # Replace with your actual path
     ```
 
 4. Import all functions from `SEP_D.py`.
