@@ -272,6 +272,7 @@ def update_segmentation_map(segmap, objects, all_branches):
 
 def extract_objects(image, threshold, deblending=None, filters=None, cleaning=None):
     """Detect and extract objects from the image."""
+    # Step 1: Initial detection
     binary_image = threshold_image(image, threshold)
     segmap = connected_components(binary_image)
     objects = {}
@@ -282,41 +283,41 @@ def extract_objects(image, threshold, deblending=None, filters=None, cleaning=No
         
         objects[label] = {'x': centroid[0], 'y': centroid[1], 'bbox': bbox, 
                           'npix': npix}
-    
-    # Apply filtering if specified
+
+    # Step 2: Deblending (if specified)
+    if deblending:
+        all_branches = extract_branches(image, objects, segmap, cleaning)
+        updated_objects = update_objects(image, objects, all_branches)
+        updated_segmap = update_segmentation_map(segmap, objects, all_branches)
+    else:
+        updated_objects = objects
+        updated_segmap = segmap
+        all_branches = None  # No branches if deblending isn't applied
+
+    # Step 3: Apply filtering (after deblending)
     if filters:
-        filtered_objects = objects
-        
+        filtered_objects = updated_objects
         for f in filters:
             key = f['key']
             lower = f.get('lower', float('-inf'))
             upper = f.get('upper', float('inf'))
             filtered_objects = {k: v for k, v in filtered_objects.items() if lower <= v[key] <= upper}
-    
-        # Create a copy of the segmentation map to update
-        updated_segmap = segmap.copy()
         
-        # Remove the filtered out objects from the segmentation map
-        for obj_id in objects.keys():
+        # Update the segmentation map based on filtered objects
+        filtered_segmap = updated_segmap.copy()
+        for obj_id in updated_objects.keys():
             if obj_id not in filtered_objects:
-                updated_segmap[updated_segmap == obj_id] = 0  # Assuming 0 is the background value
-    
+                filtered_segmap[filtered_segmap == obj_id] = 0  # Assuming 0 is the background value
     else:
-        filtered_objects = objects
-        updated_segmap = segmap
-    
-    
+        filtered_objects = updated_objects
+        filtered_segmap = updated_segmap
+
+    # Return outputs
     if deblending:
-        all_branches = extract_branches(image, filtered_objects, segmap, cleaning)
-        print(all_branches)
-        updated_objects = update_objects(image, filtered_objects, all_branches)
-        updated_segmap = update_segmentation_map(segmap, objects, all_branches)
+        return filtered_objects, filtered_segmap, [filtered_objects, all_branches, segmap]
     
+    return filtered_objects, filtered_segmap
 
-        return updated_objects, updated_segmap, [filtered_objects, all_branches, segmap]
-
-
-    return filtered_objects, updated_segmap
 
 
 
@@ -512,29 +513,3 @@ def plot_segmap(image, threshold=1, below_color='lightblue', above_color='darkbl
     plt.imshow(image, cmap=cmap, norm=norm,origin='lower')
 
     plt.show()
-#%%
-filters = [
-    {'key': 'npix', 'lower': 5},
-    {'key': 'npix', 'upper': 30},
-] 
-
-threshold = 0.4
-
-#objects, segmentation_map, deblend_info = extract_objects(image, threshold,filters=filters, 
-#                                        deblending= True)
-objects, segmentation_map = extract_objects(image, threshold,filters=filters)
-#objects, segmentation_map  = extract_objects(image, threshold,filters=filters)
-#de threshold die gebruikt worddt in gated imaging is lager dan in normale imaging
-#dit komt omdat er relatief meer achtergrond is, hier nog niet de detectie met twee verschillende thresholds 
-#die kan gekopieerd worden uit de code voor intensity traces mocht dat nodig zijn
-print(fr'Aantal gevonden quantum dots door algoritme {len(objects)}')
-x = [objects[i]['x'] for i in objects]
-y = [objects[i]['y'] for i in objects]
-
-
-
-plot_segmap(segmentation_map)
-plot_objects(image, objects,radius=0.25)
-
-#%%
-plt.imshow(segmentation_map)

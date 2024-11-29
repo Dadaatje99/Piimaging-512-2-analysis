@@ -169,8 +169,43 @@ def get_index(path):
             
     return index
 
-def select_and_load_files(path, index):
+def process_meta(meta, mode='intensity'):
+    """
+    Process metadata for laser and timing parameters.
+    
+    Parameters:
+        meta (dict): Dictionary containing metadata with keys such as 'Laser frequency', 'Gate width', 'Gate step size', 'Gate steps', 'Frames', 'Integration time'.
+        mode (str): Mode of operation, either 'gated' or 'intensity'. Default is 'gated'.
+        version (str): Version of the code to use, either 'new' or 'old'. Default is 'new'.
+    
+    Returns:
+        tuple: Processed parameters including frequency, time between laser pulses, gate width, gate step size, number of gate steps, number of frames, and integration time.
+    """
+    if mode not in ['gated', 'intensity']:
+        raise ValueError("Invalid mode. Use 'gated' or 'intensity'.")
+
+    freq_laser = float(meta['Laser frequency'].removesuffix('MHz')) if mode == 'gated' else 10e6
+    tgate = float(meta['Gate width'].removesuffix('ns')) if mode == 'gated' else None
+    tstep = float(meta['Gate step size'].removesuffix('ps')) / 1000 if mode == 'gated' else 1
+
+    tlaser = 1 / freq_laser * 1000  # time between laser pulses in ns
+    nstep = int(meta['Gate steps']) if mode == 'gated' else 1
+    nframes = int(meta['Frames'])
+    tint = float(meta['Integration time'].removesuffix('ms'))
+
+    return [freq_laser, tlaser, tgate, tstep, nstep, nframes, tint]
+
+def select_and_load_files(path, fraction=1):
     # List all files in the directory
+    # Infer mode from the path
+    if 'intensity' in path:
+        mode = 'intensity'
+    elif 'gated' in path:
+        mode = 'gated'
+    else:
+        print("Cannot determine mode from the path. Please ensure the path contains 'intensity' or 'gated'.")
+        return
+    index = get_index(path)
     files = os.listdir(path)
 
     # Filter meta and movie files
@@ -187,96 +222,103 @@ def select_and_load_files(path, index):
         print("Invalid index. Please enter a valid index within the range of available files.")
         return
 
-    # Load the selected meta and movie files
+    # Load the selected meta file
     with open(os.path.join(path, meta_files[index]), 'r') as data_json:
-        meta = json.load(data_json)
-        
-    test = da.from_array(np.load(os.path.join(path, movie_files[index]),allow_pickle=True,mmap_mode='r'), chunks='auto')
-    #movie_arr_cut = np.load(os.path.join(path, movie_files[index]),allow_pickle=True,mmap_mode='r')
-    
-    movie_arr_cut = test.compute()
-    total_image_cut = np.sum(movie_arr_cut[:], axis=0)
+        meta_raw = json.load(data_json)
+
+    # Load the movie file lazily with memory mapping
+    file_path = os.path.join(path, movie_files[index])
+    movie_data = np.load(file_path, allow_pickle=True, mmap_mode='r')
+
+    # Determine the slicing range to load only a fraction of the file
+    total_frames = movie_data.shape[0]  # Assuming the first axis corresponds to frames
+    num_frames_to_load = int(total_frames * fraction)
+
+    # Slice the data to load only the specified fraction
+    movie_data_partial = movie_data[:num_frames_to_load]
+
+    # Use Dask to process the partial data
+    test = da.from_array(movie_data_partial, chunks='auto')
+    movie_arr = test.compute()
+
+    # Compute the total image (sum over frames)
+    total_image = np.sum(movie_arr, axis=0)
+
+    meta = process_meta(meta_raw, mode=mode)
+
     # Display the image
     plt.figure()
-    
-    plt.imshow(total_image_cut, cmap='jet')  # Gesneden beeld
+    plt.imshow(total_image, cmap='jet')
+    plt.title("Summed Image")
     plt.show()
-    return meta,movie_arr_cut,total_image_cut
+    
+    return meta_raw,meta, movie_arr, total_image
 
 path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-10-04 int-t dep 512SPAD/24-10-04 Intensity 2/data/intensity_images/'
 #path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-610-17 T-dep 512SPAD/intensity_images/'
-path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-10-22 gCdSe CdS decay curves/data/gated_images/' #end with /
+#path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-10-22 gCdSe CdS decay curves/data/gated_images/' #end with /
 #path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-10-22 gCdSe CdS decay curves/data/intensity_images/' #end with /
+#path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-11-18 FLIDs test/data/gated deel 1/'
 
-index = get_index(path)  # Replace with the desired index
-meta,movie_arr,total_image = select_and_load_files(path, index)
+meta_raw,meta,movie_arr,total_image = select_and_load_files(path)
 
+#'important' meta data
+freq_laser, tlaser, tgate, tstep, nstep, nframes, tint = meta
 
-#%%
-def process_meta(meta, mode='gated', version='new'):
-    """
-    Process metadata for laser and timing parameters.
-    
-    Parameters:
-        meta (dict): Dictionary containing metadata with keys such as 'Laser frequency', 'Gate width', 'Gate step size', 'Gate steps', 'Frames', 'Integration time'.
-        mode (str): Mode of operation, either 'gated' or 'intensity'. Default is 'gated'.
-        version (str): Version of the code to use, either 'new' or 'old'. Default is 'new'.
-    
-    Returns:
-        tuple: Processed parameters including frequency, time between laser pulses, gate width, gate step size, number of gate steps, number of frames, and integration time.
-    """
-    if mode not in ['gated', 'intensity']:
-        raise ValueError("Invalid mode. Use 'gated' or 'intensity'.")
-    if version not in ['new', 'old']:
-        raise ValueError("Invalid python version. Use 'new' if version >= 3.9.1 else 'old'.")
-    if version == 'new':
-        freq_laser = float(meta['Laser frequency'].removesuffix('MHz')) if mode == 'gated' else 10e6
-        tgate = float(meta['Gate width'].removesuffix('ns')) if mode == 'gated' else None
-        tstep = float(meta['Gate step size'].removesuffix('ps')) / 1000 if mode == 'gated' else 1
-    else:
-        freq_laser = float(meta['Laser frequency'].replace('MHz', '')) if mode == 'gated' else 10e6
-        tgate = float(meta['Gate width'].replace('ns', '')) if mode == 'gated' else None
-        tstep = float(meta['Gate step size'].replace('ps', '')) / 1000 if mode == 'gated' else 1
-
-    tlaser = 1 / freq_laser * 1000  # time between laser pulses in ns
-    nstep = int(meta['Gate steps']) if mode == 'gated' else 1
-    nframes = int(meta['Frames'])
-    tint = float(meta['Integration time'].removesuffix('ms') if version == 'new' else meta['Integration time'].replace('ms', ''))  # Integration time in ms
-
-    return freq_laser, tlaser, tgate, tstep, nstep, nframes, tint
-
-freq_laser, tlaser, tgate, tstep, nstep, nframes, tint = process_meta(meta, mode='gated', version='new')
-
-
-# For intensity mode using old version
-#freq_laser, tlaser, tgate, tstep, nstep, nframes, tint = process_meta(meta, mode='intensity', version='old')
 
 #%% SEP detectie van QDs 
-movie_arr_cut = movie_arr[:, 80:200, 80:200]
-total_image_cut = total_image[ 80:200, 80:200]
-del movie_arr
-del total_image
 
-#%%
+def slice_and_bkg_image(movie_arr, total_image, xlim=None, ylim=None, mesh_size=20, sigma=2):
+    # Plot the full image and full background first
+    fig, axes = plt.subplots(1, 3, figsize=(10, 5))  # 1 row, 2 columns
+
+    axes[0].imshow(total_image, origin='lower', cmap='jet', vmax=np.max(total_image))
+    axes[0].set_title('Full Total Image')
+    
+    image, bkg = background_subtraction(total_image, mesh_size=mesh_size, sigma=sigma, background_map=True)
+
+    axes[1].imshow(bkg, origin='lower', cmap='jet', vmax=np.max(total_image))
+    axes[1].set_title('Full Background')
 
 
-plt.imshow(total_image_cut, origin='lower',cmap='jet',vmax=np.max(total_image_cut))
-plt.show()
-image,bkg = background_subtraction(total_image_cut,mesh_size=20,sigma=2,background_map=True)
-plt.imshow(bkg, origin='lower',cmap='jet',vmax=np.max(image))
-plt.show()
+    # Perform background subtraction on the full image first
+    image, bkg = background_subtraction(total_image, mesh_size=mesh_size, sigma=sigma, background_map=True)
 
-plt.imshow(image, origin='lower',cmap='jet')
-plt.show()
+    # Slice the image based on xlim and ylim if provided
+    if xlim:
+        if isinstance(xlim, int):
+            xlim = (xlim, xlim + 1)
+        movie_arr = movie_arr[:, xlim[0]:xlim[1], :]
+        total_image = total_image[xlim[0]:xlim[1], :]
+        image = image[xlim[0]:xlim[1], :]
+        bkg = bkg[xlim[0]:xlim[1], :]
+
+    if ylim:
+        if isinstance(ylim, int):
+            ylim = (ylim, ylim + 1)
+        movie_arr = movie_arr[:, :, ylim[0]:ylim[1]]
+        total_image = total_image[:, ylim[0]:ylim[1]]
+        image = image[:, ylim[0]:ylim[1]]
+        bkg = bkg[:, ylim[0]:ylim[1]]
+
+    axes[2].imshow(image, origin='lower', cmap='jet')
+    axes[2].set_title('Sliced Image')
+
+    plt.tight_layout()
+    plt.show()
+    return movie_arr, total_image,bkg
+
+# Example usage:
+movie_arr_cut, total_image_cut,bkg = slice_and_bkg_image(movie_arr, total_image,xlim=[100,200],ylim=[100,200])
 
 #%%
 filters = [
-    {'key': 'npix', 'lower': 5},
+    {'key': 'npix', 'lower': 4},
     {'key': 'npix', 'upper': 3000},
 ] 
 
-threshold = 0.2
-objects, segmentation_map, deblend_info = extract_objects(image, threshold,filters=filters, 
+threshold = 1
+objects, segmentation_map, deblend_info = extract_objects(total_image_cut, threshold,filters=filters, 
                                         deblending= True)
 #objects, segmentation_map = extract_objects(image, threshold,filters=filters)
 #objects, segmentation_map  = extract_objects(image, threshold,filters=filters)
@@ -288,10 +330,12 @@ x = [objects[i]['x'] for i in objects]
 y = [objects[i]['y'] for i in objects]
 
 
-plot_objects(image, objects,radius=0.25)
+plot_objects(total_image_cut, objects,radius=0.25)
 #%%
-from SEP_D import *  # Import all functions
-plot_branches(image, deblend_info[0], deblend_info[1])
+plot_segmap(segmentation_map)
+#%%
+plot_branches(total_image_cut, deblend_info[0], deblend_info[1]) # shows also the filtered objects so you can see what is filtered
+
 
 
 #%%
@@ -388,27 +432,19 @@ def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, su
     if return_hist == True:
         return hists, thresholds
 
-hists = np.zeros((sum_of_groups.shape[0], 20))
-thresholds = np.zeros((sum_of_groups.shape[0], 2))
-num_plots=len(sum_of_groups)
+hists = np.zeros((frame_intensity1.shape[0], 20))
+thresholds = np.zeros((frame_intensity1.shape[0], 2))
+num_plots=len(frame_intensity1)
 num_figures = (num_plots + 15) // 16  # Calculate the number of figures needed
 for i in range(num_figures):
     start_idx = i * 16
     # Determine how many plots to draw for this figure
     plots_in_current_figure = min(16, num_plots - start_idx)
     
-    hist,threshold = intensity_plots(sum_of_groups, start_idx, num_plots, 
-                                     return_hist=True, summed = 4)
+    hist,threshold = intensity_plots(frame_intensity1, start_idx, num_plots, 
+                                     return_hist=True, summed = 1)
     hists += hist
 
-#%%
-all_traces1=np.copy(all_traces)
-reshaped_arr = all_traces1.reshape(all_traces1.shape[0], -1, 4)
-
-# Sum along the last axis (axis 2)
-sum_of_groups = reshaped_arr.sum(axis=2)
-
-print(sum_of_groups)
 
 #%%
 import numpy as np
@@ -745,7 +781,7 @@ def plot_decay_curves(dec_curves, start_idx, num_plots,fit=None,title=None):
             
             ax.set_yticks([])
             ax.set_yticks([round(max_value,1)])
-            ax.set_yticklabels([f'{round(max_value / 100000,1)}'], fontproperties=font_prop)
+            ax.set_yticklabels([f'{round(max_value / 1000,1)}'], fontproperties=font_prop)
             
             ax.tick_params(axis='y', which='minor', labelleft=False)
 
@@ -758,7 +794,7 @@ def plot_decay_curves(dec_curves, start_idx, num_plots,fit=None,title=None):
 
             #ax.ticklabel_format(style='scientific', axis='y', scilimits=(-1, 1))
         if current_row == 0:
-            ax.set_title('$\\mathdefault{{10^5}}$',loc='left', fontproperties=font_prop)
+            ax.set_title('$\\mathdefault{{10^3}}$',loc='left', fontproperties=font_prop)
 
         if current_row == row - 1:
             ax.set_xlabel(r'$\tau$ (ns)', fontproperties=font_prop)
@@ -782,14 +818,6 @@ for i in range(num_figures):
     plots_in_current_figure = min(16, num_plots - start_idx)
     plot_decay_curves(dec_curves, start_idx, plots_in_current_figure,title=f'Decay Curves page:{i+1}')
 
-#%%
-
-atest = np.roll(dec_curves,-1)[:,:-1]
-atest1 = tstep * np.arange(0, dec_curves.shape[1])[:-1]
-alife = np.sum(atest*atest1,axis=1)
-asum = np.sum(atest,axis=1)
-afinal = alife/asum
-FLID(afinal,asum,2,25000)
 
 #%%fitten aan model met convolutie
 
@@ -800,8 +828,7 @@ model_snel_popt = np.zeros((len(objects),3))
 
 for i, datai in enumerate(dec_curves):
     try:
-        model_snel_popt[i],_ = curve_fit(model_snel, datat, datai,p0=[85,1/60,100],
-                              sigma=np.sqrt(datai),bounds=([0,0,0],[100000,0.4,10_000_000]))
+        model_snel_popt[i],_ = curve_fit(model_snel, datat, datai,p0=[85,1/60,100],bounds=([0,0,0],[100000,0.4,10_000_000]))
     except RuntimeError as e:
         print(f"Fout bij fitten decaycurve {i}: {e}")
         continue
@@ -828,7 +855,7 @@ mono_popt = np.zeros((len(objects),2))
 for i, datai in enumerate(dec_curves):
     try:
         datai = np.roll(datai,-np.where(datai==np.max(datai))[0][0])
-        mono_popt[i],_ = curve_fit(mono_exp, datat[:-1], datai[:-1],sigma=np.sqrt(datai[:-1]),p0=[1/100,1_000_000],bounds=([0,0],[0.2,100_000_000]))
+        mono_popt[i],_ = curve_fit(mono_exp, datat[:-1], datai[:-1],p0=[1/100,1_000_000],bounds=([0,0],[0.2,100_000_000]))
         #mono_popt[i],_ = curve_fit(mono_exp, datat[:-1], datai[:-1],sigma=np.sqrt(datai[:-1]))
     except RuntimeError as e:
         print(f"Fout bij fitten decaycurve {i}: {e}")
@@ -843,6 +870,11 @@ for i in range(num_figures):
     plot_decay_curves(dec_curves, start_idx, plots_in_current_figure,fit=mono_popt)
 
 plt.tight_layout()
+
+#%%
+plt.hist(1/mono_popt.T[0],range(0,100,10))
+#%%
+plt.hist(1/model_snel_popt.T[1],range(0,100,10))
 #%%
 
 def double_exp(t_array,k1,I1,k2,I2,bk):
