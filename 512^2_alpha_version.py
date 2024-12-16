@@ -10,24 +10,16 @@ SEP_D - Code to detect particles and get there properties.
 
 @author: David van Houten
 """
-import inspect
-import SEP_D
-functions_list = [name for name, obj in inspect.getmembers(SEP_D) if inspect.isfunction(obj)]
-# Print the list of functions
-print("Functions available in SEP_D:")
-for func in functions_list:
-    print(func)
-#%%
 import sys
 # Add the directory containing SEP_D.py
-sys.path.append('D:/Universiteit/5.1-6.2 Master Thesis/Experiments/SEP_D/') # Replace with your actual path
+sys.path.append('C:/David/SEP_D/') # Replace with your actual path
 from SEP_D import *  # Import all functions
 import matplotlib.gridspec as gridspec
 import time
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
-import cv2 as cv
+
 import os
 import numba
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -126,14 +118,8 @@ def model_snel(t_array,dt,k,i):
             y[idx] = np.exp(-k*(tgate + t))*(-1 + np.exp(tgate*k))/(-1 + np.exp(tlaser*k))
     return i*y
 
-import cv2
 
-def neighborhood_average(image, ksize=3):
-    """
-    Calculate the neighborhood average for each pixel.
-    """
-    kernel = np.ones((ksize, ksize), np.float32) / (ksize * ksize)
-    return cv2.filter2D(image, -1, kernel)
+
 
 #%%
 def get_index(path):
@@ -243,7 +229,7 @@ def select_and_load_files(path, fraction=1):
 
     # Compute the total image (sum over frames)
     total_image = np.sum(movie_arr, axis=0)
-
+    print(total_image)
     meta = process_meta(meta_raw, mode=mode)
 
     # Display the image
@@ -254,73 +240,104 @@ def select_and_load_files(path, fraction=1):
     
     return meta_raw,meta, movie_arr, total_image
 
-path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-10-04 int-t dep 512SPAD/24-10-04 Intensity 2/data/intensity_images/'
-#path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-610-17 T-dep 512SPAD/intensity_images/'
-#path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-10-22 gCdSe CdS decay curves/data/gated_images/' #end with /
-#path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-10-22 gCdSe CdS decay curves/data/intensity_images/' #end with /
-#path = r'D:/Universiteit/5.1-6.2 Master Thesis/Experiments/24-11-18 FLIDs test/data/gated deel 1/'
+
+
+
+path = r'C:/SPAD512S/20241128/Jaco/data/intensity_images/'
+path = r'C:/David/24-10-24 gQD/data/intensity_images/'
+path = r'C:/David/24-10-22 gQD int-traces/data/intensity_images/'
 
 meta_raw,meta,movie_arr,total_image = select_and_load_files(path)
 
 #'important' meta data
 freq_laser, tlaser, tgate, tstep, nstep, nframes, tint = meta
 
-
 #%% SEP detectie van QDs 
+from matplotlib import font_manager
+font_path = r'C:/Windows/Fonts/framd.ttf'  # Update this with the path to your font file
+font_prop = font_manager.FontProperties(fname=font_path)
 
 def slice_and_bkg_image(movie_arr, total_image, xlim=None, ylim=None, mesh_size=20, sigma=2):
     # Plot the full image and full background first
-    fig, axes = plt.subplots(1, 3, figsize=(10, 5))  # 1 row, 2 columns
+    fig, axes = plt.subplots(1, 3, figsize=(8,5))  # 1 row, 2 columns
 
     axes[0].imshow(total_image, origin='lower', cmap='jet', vmax=np.max(total_image))
-    axes[0].set_title('Full Total Image')
+    axes[0].set_title('Image')
+    axes[0].set_xlabel('Pixels', fontproperties=font_prop)
+    axes[0].set_ylabel('Pixels', fontproperties=font_prop)
+    axes[0].xaxis.set_major_locator(MultipleLocator(100)) 
+    axes[0].xaxis.set_minor_locator(MultipleLocator(50)) 
+    axes[0].tick_params(axis='x', which='major', labelsize=10)
+    axes[0].tick_params(axis='x', which='minor',  labelsize=8)
+    axes[0].yaxis.set_major_locator(MultipleLocator(100))
+    axes[0].yaxis.set_minor_locator(MultipleLocator(50))  
+    axes[0].tick_params(axis='y', which='major', labelsize=10)
+    axes[0].tick_params(axis='y', which='minor',  labelsize=8)
     
     image, bkg = background_subtraction(total_image, mesh_size=mesh_size, sigma=sigma, background_map=True)
 
     axes[1].imshow(bkg, origin='lower', cmap='jet', vmax=np.max(total_image))
-    axes[1].set_title('Full Background')
-
-
-    # Perform background subtraction on the full image first
-    image, bkg = background_subtraction(total_image, mesh_size=mesh_size, sigma=sigma, background_map=True)
+    axes[1].set_title('Background')
+    axes[1].set_xlabel('Pixels', fontproperties=font_prop)
+    axes[1].set_ylabel('Pixels', fontproperties=font_prop)
+    axes[1].xaxis.set_major_locator(MultipleLocator(100)) 
+    axes[1].xaxis.set_minor_locator(MultipleLocator(50)) 
+    axes[1].tick_params(axis='x', which='major', labelsize=10)
+    axes[1].tick_params(axis='x', which='minor',  labelsize=8)
+    axes[1].yaxis.set_major_locator(MultipleLocator(100))
+    axes[1].yaxis.set_minor_locator(MultipleLocator(50))  
+    axes[1].tick_params(axis='y', which='major', labelsize=10)
+    axes[1].tick_params(axis='y', which='minor',  labelsize=8)
+    
 
     # Slice the image based on xlim and ylim if provided
     if xlim:
         if isinstance(xlim, int):
             xlim = (xlim, xlim + 1)
         movie_arr = movie_arr[:, xlim[0]:xlim[1], :]
-        total_image = total_image[xlim[0]:xlim[1], :]
         image = image[xlim[0]:xlim[1], :]
         bkg = bkg[xlim[0]:xlim[1], :]
 
     if ylim:
         if isinstance(ylim, int):
-            ylim = (ylim, ylim + 1)
+            ylim = (ylim, ylim + 1
+                    )
         movie_arr = movie_arr[:, :, ylim[0]:ylim[1]]
-        total_image = total_image[:, ylim[0]:ylim[1]]
         image = image[:, ylim[0]:ylim[1]]
         bkg = bkg[:, ylim[0]:ylim[1]]
 
     axes[2].imshow(image, origin='lower', cmap='jet')
-    axes[2].set_title('Sliced Image')
+    axes[2].set_title('Image - Background')
+    axes[2].set_xlabel('Pixels', fontproperties=font_prop)
+    axes[2].set_ylabel('Pixels', fontproperties=font_prop)
+    axes[2].xaxis.set_major_locator(MultipleLocator(100)) 
+    axes[2].xaxis.set_minor_locator(MultipleLocator(50)) 
+    axes[2].tick_params(axis='x', which='major', labelsize=10)
+    axes[2].tick_params(axis='x', which='minor',  labelsize=8)
+    axes[2].yaxis.set_major_locator(MultipleLocator(100))
+    axes[2].yaxis.set_minor_locator(MultipleLocator(50))  
+    axes[2].tick_params(axis='y', which='major', labelsize=10)
+    axes[2].tick_params(axis='y', which='minor',  labelsize=8)
 
     plt.tight_layout()
     plt.show()
-    return movie_arr, total_image,bkg
+    return movie_arr, image,bkg
 
 # Example usage:
-movie_arr_cut, total_image_cut,bkg = slice_and_bkg_image(movie_arr, total_image,xlim=[100,200],ylim=[100,200])
-
+movie_arr_cut, total_image_cut,bkg = slice_and_bkg_image(movie_arr, total_image)
+#movie_arr_cut, total_image_cut,bkg = slice_and_bkg_image(movie_arr, total_image,xlim=[100,200],ylim=[100,200])
 #%%
 filters = [
     {'key': 'npix', 'lower': 4},
-    {'key': 'npix', 'upper': 3000},
+    {'key': 'npix', 'upper': 20000},
+    {'key': 'mean_int', 'lower': 10},
+    {'key': 'mean_int', 'upper': 5000000}
 ] 
 
-threshold = 1
-objects, segmentation_map, deblend_info = extract_objects(total_image_cut, threshold,filters=filters, 
-                                        deblending= True)
-#objects, segmentation_map = extract_objects(image, threshold,filters=filters)
+threshold = 0.5
+#objects, segmentation_map, deblend_info = extract_objects(total_image_cut, threshold,filters=filters, 
+#                                        deblending= True)
+objects, segmentation_map = extract_objects(movie_arr_cut, threshold,filters=filters)
 #objects, segmentation_map  = extract_objects(image, threshold,filters=filters)
 #de threshold die gebruikt worddt in gated imaging is lager dan in normale imaging
 #dit komt omdat er relatief meer achtergrond is, hier nog niet de detectie met twee verschillende thresholds 
@@ -330,7 +347,10 @@ x = [objects[i]['x'] for i in objects]
 y = [objects[i]['y'] for i in objects]
 
 
-plot_objects(total_image_cut, objects,radius=0.25)
+plot_objects(total_image_cut, objects,radius=3)
+#%%
+sum_ = np.mean(total_image_cut[segmentation_map == 4]/len(total_image_cut))
+print(sum_)
 #%%
 plot_segmap(segmentation_map)
 #%%
@@ -363,9 +383,7 @@ frame_intensity1 = intensity_traces(movie_arr_cut, segmentation_map, objects)
 
 
 #%%
-from matplotlib import font_manager
-font_path = r'C:/Windows/Fonts/FRABK.ttf'  # Update this with the path to your font file
-font_prop = font_manager.FontProperties(fname=font_path)
+
 
 def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, summed=1):
     col = 4  # Fixed number of columns for 16 plots
@@ -373,7 +391,7 @@ def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, su
     bins = 20  # Define the number of bins for the histogram, adjust as needed
 
     fig = plt.figure(figsize=(10, 5))
-    gs = gridspec.GridSpec(row, 3 * col, width_ratios=[8, 1, 2] * col, wspace=0, hspace=0.0)
+    gs = gridspec.GridSpec(row, 3 * col, width_ratios=[8, 1, 2.2] * col, wspace=0, hspace=0.0)
     hists = np.zeros((frame_intensity.shape[0], bins))
     thresholds = np.zeros((frame_intensity.shape[0], 2))
 
@@ -395,20 +413,20 @@ def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, su
             min_val = np.min(frame_intensity[start_idx + idx])
             max_val = np.max(frame_intensity[start_idx + idx])
             img_ax.set_ylim(bottom=0)
-            img_ax.set_yticks([max_val * 0.25, max_val * 0.5, max_val * 0.75])
-            img_ax.set_yticklabels([''] * 3)   
-            img_ax.set_xticks([])
+            #img_ax.set_yticks([max_val * 0.25, max_val * 0.5, max_val * 0.75])
+            #img_ax.set_yticklabels([''] * 3)   
+            #img_ax.set_xticks([])
             img_ax.set_ylim([0, max_val])
             #img_ax.set_xlim([0, (nframes/summed*nstep*int(tint)*10**-3*summed)/30])
             img_ax.tick_params(axis='y', direction='in')
-            bin_edges = np.linspace(min_val, max_val, bins + 1)
+            bin_edges = np.linspace(0, max_val, bins + 1)
             hist, _ = np.histogram(frame_intensity[start_idx + idx], bins=bin_edges)
             hists[start_idx + idx] += hist
 
 
             hist_ax = fig.add_subplot(gs[current_row, 3 * current_col + 1])
             hist_ax.barh(bin_edges[:-1], hist / max(hist), height=np.diff(bin_edges), color='#600000ff', alpha=0.5, align='edge', edgecolor='black', linewidth=0.5)
-            hist_ax.set_ylim([min_val, max_val])
+            hist_ax.set_ylim([0, max_val])
             hist_ax.set_yticks([]) 
             hist_ax.set_xticks([])  
             hist_ax.set_xlim([0, 1.2])
@@ -417,6 +435,7 @@ def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, su
             xticks = list(range(0, int(maxi) + interval, interval))
             xticklabels = [str(tick) for tick in xticks]
             img_ax.set_xlim([0,np.max(xticks)])
+            img_ax.set_xticklabels(' ')
     
         if current_row == row-1:
             img_ax.set_xlabel('time (sec)', fontproperties=font_prop)
@@ -444,6 +463,11 @@ for i in range(num_figures):
     hist,threshold = intensity_plots(frame_intensity1, start_idx, num_plots, 
                                      return_hist=True, summed = 1)
     hists += hist
+
+
+#%%
+
+
 
 
 #%%
@@ -491,8 +515,53 @@ for j in range(frame_intensity1.shape[0]):
         plt.show()
 
 
+#%%
+x=[3,0,6,8,9,10,11,12,14,19,21]
 
-    
+sum_trace=np.zeros(frame_intensity1.shape[1])
+for i in x:
+    sum_trace += frame_intensity1[i]
+    fig, ax = plt.subplots(figsize=(8, 2))
+
+    # Plotting the data
+    ax.plot(np.linspace(0, 60, 12000), sum_trace, color='blue', linestyle='-', linewidth=1, label='Signal')
+
+    # Enhancing the aesthetics
+
+    ax.set_xlabel('Time (s)',fontproperties=font_prop)
+    ax.set_ylabel('Counts / 10 ms',  fontproperties=font_prop)
+    ax.set_xlim([0, 20])
+    #ax.set_ylim([0, 3000])
+    ax.set_ylim(bottom=0)
+
+    ax.xaxis.set_major_locator(MultipleLocator(5))
+    ax.xaxis.set_minor_locator(MultipleLocator(1))
+    # Show the plot
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+# Create the plot
+fig, ax = plt.subplots(figsize=(8, 2))
+
+# Plotting the data
+ax.plot(np.linspace(0, 60, 12000), sum_trace, color='blue', linestyle='-', linewidth=1, label='Signal')
+
+# Enhancing the aesthetics
+
+ax.set_xlabel('Time (s)',fontproperties=font_prop)
+ax.set_ylabel('Counts / 10 ms',  fontproperties=font_prop)
+ax.set_xlim([0, 20])
+ax.set_ylim([0, 3000])
+
+ax.xaxis.set_major_locator(MultipleLocator(5))
+ax.xaxis.set_minor_locator(MultipleLocator(1))
+# Show the plot
+plt.tight_layout()
+plt.show()
+
         
   
 

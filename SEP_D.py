@@ -129,6 +129,10 @@ def calculate_npix(labels,label):
     indices = np.where(labels == label)
     return len(indices[0])
 
+def calculate_mean_int(labels,label,image,len_arr):
+    """Calculate the pixelsize of a labeled component."""
+    mean = np.sum(image[labels == label])/len_arr
+    return mean
 
 ###############################################################################
 #branches splitting
@@ -270,9 +274,10 @@ def update_segmentation_map(segmap, objects, all_branches):
 ###############################################################################
 #Objects extraction
 
-def extract_objects(image, threshold, deblending=None, filters=None, cleaning=None):
+def extract_objects(movie_arr, threshold, deblending=None, filters=None, cleaning=None):
     """Detect and extract objects from the image."""
     # Step 1: Initial detection
+    image = np.sum(movie_arr, axis=0)
     binary_image = threshold_image(image, threshold)
     segmap = connected_components(binary_image)
     objects = {}
@@ -280,9 +285,10 @@ def extract_objects(image, threshold, deblending=None, filters=None, cleaning=No
         centroid = calculate_centroid(segmap, label)
         bbox = calculate_bounding_box(segmap, label)
         npix = calculate_npix(segmap, label)
+        mean_int = calculate_mean_int(segmap, label,image,movie_arr.shape[0])
         
         objects[label] = {'x': centroid[0], 'y': centroid[1], 'bbox': bbox, 
-                          'npix': npix}
+                          'npix': npix,'mean_int': mean_int}
 
     # Step 2: Deblending (if specified)
     if deblending:
@@ -314,33 +320,47 @@ def extract_objects(image, threshold, deblending=None, filters=None, cleaning=No
 
     # Return outputs
     if deblending:
-        return filtered_objects, filtered_segmap, [filtered_objects, all_branches, segmap]
+        return filtered_objects, filtered_segmap, [objects, all_branches, segmap]
     
     return filtered_objects, filtered_segmap
 
 
 
-
+from matplotlib import font_manager
+font_path = r'C:/Windows/Fonts/framd.ttf'  # Update this with the path to your font file
+font_prop = font_manager.FontProperties(fname=font_path)
+from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import ScalarFormatter
 ###############################################################################
 #Objects plotting
 
 def plot_objects(frames, objects,pix_sizes = 13,pix_sum = 1,mag = 100, radius=2):
     
     pix_size = pix_sizes / mag * pix_sum
-    fig, ax = plt.subplots()
-    ax.imshow(frames, origin='lower', cmap='jet', vmin=0, vmax=np.max(frames),
-              extent=[0, frames.shape[1] * pix_size, 0, frames.shape[0] * pix_size])
-
+    fig, ax = plt.subplots(figsize=(8/2,5/2))
+    # ax.imshow(frames, origin='lower', cmap='jet', vmin=0, vmax=np.max(frames),
+    #           extent=[0, frames.shape[1] * pix_size, 0, frames.shape[0] * pix_size])
+    ax.imshow(frames, origin='lower', cmap='jet', vmin=0, vmax=np.max(frames))
     
     for idx, key in enumerate(objects):
-        x = objects[key]['x'] * pix_size
-        y = objects[key]['y'] * pix_size
+        # x = objects[key]['x'] * pix_size
+        # y = objects[key]['y'] * pix_size
+        x = objects[key]['x']
+        y = objects[key]['y']
 
         circle = Circle((y, x), radius, edgecolor='yellow', facecolor='none', lw=0.5)
         ax.add_artist(circle)
-
-    plt.xlabel(r'x ($\mathrm{\mu m}$)')
-    plt.ylabel(r'y ($\mathrm{\mu m}$)')
+    
+    ax.set_xlabel('Pixels', fontproperties=font_prop)
+    ax.set_ylabel('Pixels', fontproperties=font_prop)
+    ax.xaxis.set_major_locator(MultipleLocator(100)) 
+    ax.xaxis.set_minor_locator(MultipleLocator(50)) 
+    ax.tick_params(axis='x', which='major', labelsize=10)
+    ax.tick_params(axis='x', which='minor',  labelsize=8)
+    ax.yaxis.set_major_locator(MultipleLocator(100))
+    ax.yaxis.set_minor_locator(MultipleLocator(50))  
+    ax.tick_params(axis='y', which='major', labelsize=10)
+    ax.tick_params(axis='y', which='minor',  labelsize=8)
     plt.show()
 
 
