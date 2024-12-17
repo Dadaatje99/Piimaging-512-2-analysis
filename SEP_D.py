@@ -43,32 +43,46 @@ def bilinear_interpolate(grid_x, grid_y, values, xi, yi):
     return griddata((grid_x, grid_y), values, (xi, yi), method='linear')
 
 def background_subtraction(image, mesh_size=32, sigma=2, background_map=False, plot_sigma_clipping=False):
-    """Compute the background map for the image."""
+     """Compute the background map for the image."""
     ny, nx = image.shape
     background = np.zeros_like(image)
     total_iterations = []
 
-    # Create grid points for interpolation
-    grid_x, grid_y = np.meshgrid(np.arange(0, nx, mesh_size), np.arange(0, ny, mesh_size))
-    values = []
-
     # Estimate background in each mesh
+    grid_x, grid_y, values = [], [], []
     for i in range(0, nx, mesh_size):
         for j in range(0, ny, mesh_size):
             mesh = image[j:j+mesh_size, i:i+mesh_size]
             if mesh.size == 0:
                 continue
             mode, iterations = estimate_background(mesh.flatten(), sigma)
+            grid_x.append(i + mesh_size / 2)
+            grid_y.append(j + mesh_size / 2)
             values.append(mode)
-            background[j:j+mesh_size, i:i+mesh_size] = mode
             total_iterations.append(iterations)
+    
+    grid_x, grid_y, values = np.array(grid_x), np.array(grid_y), np.array(values)
+
+    # Interpolate in x direction first
+    for j in range(0, ny, mesh_size):
+        row_y = grid_y[grid_y == (j + mesh_size / 2)]
+        row_x = grid_x[grid_y == (j + mesh_size / 2)]
+        row_values = values[grid_y == (j + mesh_size / 2)]
+        for i in range(nx):
+            if row_x.size > 1:
+                background[j:j+mesh_size, i] = np.interp(i, row_x, row_values)
+
+    # Interpolate in y direction
+    for i in range(nx):
+        col_x = grid_x[grid_x == (i + mesh_size / 2)]
+        col_y = grid_y[grid_x == (i + mesh_size / 2)]
+        col_values = values[grid_x == (i + mesh_size / 2)]
+        for j in range(ny):
+            if col_y.size > 1:
+                background[j, i] = np.interp(j, col_y, col_values)
 
     # Apply median filter to suppress local overestimations
     background = median_filter(background, size=mesh_size)
-    
-    # Bilinear interpolation between the meshes
-    xi, yi = np.meshgrid(np.arange(nx), np.arange(ny))
-    background = bilinear_interpolate(grid_x.flatten(), grid_y.flatten(), values, xi, yi)
 
     corrected_image = image - background
     corrected_image[corrected_image > 1e9] = 0
