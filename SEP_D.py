@@ -10,30 +10,37 @@ import numpy as np
 from scipy.ndimage import median_filter
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.interpolate import griddata
 
 ###############################################################################
 #background correction code
 
-def sigma_clipping(data, sigma):
-    """Perform sigma clipping on the data until all values are within the specified sigma range."""
+def sigma_clipping(data, sigma, kappa=3):
+    """Perform kappa-sigma clipping on the data until convergence."""
     iterations = 0
     while True:
         mean = np.mean(data)
         std = np.std(data)
-        clipped_data = data[(data > mean - sigma * std) & (data < mean + sigma * std)]
-        if len(clipped_data) == len(data):
+        median = np.median(data)
+        clipped_data = data[(data > median - kappa * std) & (data < median + kappa * std)]
+        new_std = np.std(clipped_data)
+        if abs(new_std - std) / std < 0.2:  # Convergence criterion: change in std < 20%
             break
         data = clipped_data
         iterations += 1
-    return data, iterations
+    return clipped_data, iterations
 
 def estimate_background(data, sigma):
-    """Estimate the background using a combination of σ-clipping and mode estimation."""
+    """Estimate the background using a combination of kappa-sigma clipping and mode estimation."""
     clipped_data, iterations = sigma_clipping(data, sigma)
     median = np.median(clipped_data)
     mean = np.mean(clipped_data)
     mode = 2.5 * median - 1.5 * mean
     return mode, iterations
+
+def bilinear_interpolate(grid_x, grid_y, values, xi, yi):
+    """Perform bilinear interpolation for the given grid and query points."""
+    return griddata((grid_x, grid_y), values, (xi, yi), method='linear')
 
 def background_subtraction(image, mesh_size=32, sigma=2, background_map=False, plot_sigma_clipping=False):
     """Compute the background map for the image."""
@@ -41,19 +48,31 @@ def background_subtraction(image, mesh_size=32, sigma=2, background_map=False, p
     background = np.zeros_like(image)
     total_iterations = []
 
+    # Create grid points for interpolation
+    grid_x, grid_y = np.meshgrid(np.arange(0, nx, mesh_size), np.arange(0, ny, mesh_size))
+    values = []
+
     # Estimate background in each mesh
     for i in range(0, nx, mesh_size):
         for j in range(0, ny, mesh_size):
             mesh = image[j:j+mesh_size, i:i+mesh_size]
+            if mesh.size == 0:
+                continue
             mode, iterations = estimate_background(mesh.flatten(), sigma)
+            values.append(mode)
             background[j:j+mesh_size, i:i+mesh_size] = mode
             total_iterations.append(iterations)
+
+    # Apply median filter to suppress local overestimations
+    background = median_filter(background, size=mesh_size)
     
-    # Interpolate between the meshes
-    background = gaussian_filter(background, sigma=mesh_size)
+    # Bilinear interpolation between the meshes
+    xi, yi = np.meshgrid(np.arange(nx), np.arange(ny))
+    background = bilinear_interpolate(grid_x.flatten(), grid_y.flatten(), values, xi, yi)
 
     corrected_image = image - background
     corrected_image[corrected_image > 1e9] = 0
+
     if plot_sigma_clipping:
         plt.hist(total_iterations, bins=range(max(total_iterations)+1), edgecolor='black')
         plt.xlabel('Iterations')
@@ -129,9 +148,9 @@ def calculate_npix(labels,label):
     indices = np.where(labels == label)
     return len(indices[0])
 
-def calculate_mean_int(labels,label,image,len_arr):
+def calculate_mean_int(labels,label,image):
     """Calculate the pixelsize of a labeled component."""
-    mean = np.sum(image[labels == label])/len_arr
+    mean = np.sum(image[labels == label])
     return mean
 
 ###############################################################################
@@ -243,8 +262,9 @@ def update_objects(total_image, objects, branches):
             centroid = calculate_centroid(branch_labels, label)
             bbox = calculate_bounding_box(branch_labels, label)
             npix = calculate_npix(branch_labels, label)
+            mean_int = calculate_mean_int(branch_labels, label,total_image)
             
-            updated_objects[label] = {'x': centroid[0], 'y': centroid[1], 'bbox': bbox, 'npix': npix}
+            updated_objects[label] = {'x': centroid[0], 'y': centroid[1], 'bbox': bbox, 'npix': npix,'mean_int': mean_int}
             label += 1
     return updated_objects
 
@@ -274,10 +294,9 @@ def update_segmentation_map(segmap, objects, all_branches):
 ###############################################################################
 #Objects extraction
 
-def extract_objects(movie_arr, threshold, deblending=None, filters=None, cleaning=None):
+def extract_objects(image, threshold, deblending=None, filters=None, cleaning=None):
     """Detect and extract objects from the image."""
     # Step 1: Initial detection
-    image = np.sum(movie_arr, axis=0)
     binary_image = threshold_image(image, threshold)
     segmap = connected_components(binary_image)
     objects = {}
@@ -285,7 +304,7 @@ def extract_objects(movie_arr, threshold, deblending=None, filters=None, cleanin
         centroid = calculate_centroid(segmap, label)
         bbox = calculate_bounding_box(segmap, label)
         npix = calculate_npix(segmap, label)
-        mean_int = calculate_mean_int(segmap, label,image,movie_arr.shape[0])
+        mean_int = calculate_mean_int(segmap, label,image)
         
         objects[label] = {'x': centroid[0], 'y': centroid[1], 'bbox': bbox, 
                           'npix': npix,'mean_int': mean_int}
@@ -304,6 +323,7 @@ def extract_objects(movie_arr, threshold, deblending=None, filters=None, cleanin
     if filters:
         filtered_objects = updated_objects
         for f in filters:
+            print(f)
             key = f['key']
             lower = f.get('lower', float('-inf'))
             upper = f.get('upper', float('inf'))
