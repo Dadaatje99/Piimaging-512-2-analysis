@@ -70,6 +70,7 @@ def mono_exp(t_array,k,I):
     """Monoexponentieel verval zonder achtergrond"""
     return I*np.exp(-k*t_array)# + bg
 
+
 def allign_dec_arr(dec_arr,objects,total_image,gate_steps):
     """Zorgt dat onderling delay tussen pixels die bij een qd horen opgelost
     wordt door onderling te verschuiven en de maximale overlap te vinden"""
@@ -117,6 +118,7 @@ def model_snel(t_array,dt,k,i):
         else:
             y[idx] = np.exp(-k*(tgate + t))*(-1 + np.exp(tgate*k))/(-1 + np.exp(tlaser*k))
     return i*y
+
 
 
 
@@ -242,10 +244,8 @@ def select_and_load_files(path, fraction=1):
 
 
 
-
-path = r'C:/SPAD512S/20241128/Jaco/data/intensity_images/'
-path = r'C:/David/24-10-24 gQD/data/intensity_images/'
-path = r'C:/David/24-10-22 gQD int-traces/data/intensity_images/'
+#path= r'C:/.../data/intensity_images/'
+#path = r'C:/.../data/gated_images/'
 
 meta_raw,meta,movie_arr,total_image = select_and_load_files(path)
 
@@ -257,7 +257,7 @@ from matplotlib import font_manager
 font_path = r'C:/Windows/Fonts/framd.ttf'  # Update this with the path to your font file
 font_prop = font_manager.FontProperties(fname=font_path)
 
-def slice_and_bkg_image(movie_arr, total_image, xlim=None, ylim=None, mesh_size=20, sigma=2):
+def slice_and_bkg_image(movie_arr, total_image, xlim=None, ylim=None, mesh_size=40, sigma=2):
     # Plot the full image and full background first
     fig, axes = plt.subplots(1, 3, figsize=(8,5))  # 1 row, 2 columns
 
@@ -276,7 +276,9 @@ def slice_and_bkg_image(movie_arr, total_image, xlim=None, ylim=None, mesh_size=
     
     image, bkg = background_subtraction(total_image, mesh_size=mesh_size, sigma=sigma, background_map=True)
 
-    axes[1].imshow(bkg, origin='lower', cmap='jet', vmax=np.max(total_image))
+    axes[1].imshow(bkg, origin='lower', cmap='jet')
+    contour =  axes[1].contour(bkg,origin='lower', levels=10, colors='blue', linewidths=1)
+
     axes[1].set_title('Background')
     axes[1].set_xlabel('Pixels', fontproperties=font_prop)
     axes[1].set_ylabel('Pixels', fontproperties=font_prop)
@@ -326,44 +328,35 @@ def slice_and_bkg_image(movie_arr, total_image, xlim=None, ylim=None, mesh_size=
 # Example usage:
 movie_arr_cut, total_image_cut,bkg = slice_and_bkg_image(movie_arr, total_image)
 #movie_arr_cut, total_image_cut,bkg = slice_and_bkg_image(movie_arr, total_image,xlim=[100,200],ylim=[100,200])
+
 #%%
 filters = [
     {'key': 'npix', 'lower': 4},
-    {'key': 'npix', 'upper': 20000},
-    {'key': 'mean_int', 'lower': 10},
-    {'key': 'mean_int', 'upper': 5000000}
+    {'key': 'npix', 'upper': 26},
+    #{'key': 'mean_int', 'lower': 100 *12000},
+    #{'key': 'mean_int', 'upper': 500 *12000}
 ] 
 
-threshold = 0.5
+threshold = 1
 #objects, segmentation_map, deblend_info = extract_objects(total_image_cut, threshold,filters=filters, 
 #                                        deblending= True)
-objects, segmentation_map = extract_objects(movie_arr_cut, threshold,filters=filters)
-#objects, segmentation_map  = extract_objects(image, threshold,filters=filters)
+objects, segmentation_map = extract_objects(total_image_cut, threshold,filters=filters)
 #de threshold die gebruikt worddt in gated imaging is lager dan in normale imaging
 #dit komt omdat er relatief meer achtergrond is, hier nog niet de detectie met twee verschillende thresholds 
 #die kan gekopieerd worden uit de code voor intensity traces mocht dat nodig zijn
 print(fr'Aantal gevonden quantum dots door algoritme {len(objects)}')
-x = [objects[i]['x'] for i in objects]
-y = [objects[i]['y'] for i in objects]
-
 
 plot_objects(total_image_cut, objects,radius=3)
-#%%
-sum_ = np.mean(total_image_cut[segmentation_map == 4]/len(total_image_cut))
-print(sum_)
-#%%
-plot_segmap(segmentation_map)
-#%%
-plot_branches(total_image_cut, deblend_info[0], deblend_info[1]) # shows also the filtered objects so you can see what is filtered
-
 
 
 #%%
+
 def intensity_traces(movie_array,segmentation_map,objects, background_map=None):
     """Neemt de locaties van quantum dots gedetecteerd door sep en 
     bepaalt de intensity traces van de gevonden quantum dots
     dit gebeurt door het optellen van intensity traces van de losse pixels"""
     
+   
     int_traces = np.zeros((len(objects),movie_array.shape[0]))
     if background_map is not None:
         norm_bkg_map  = background_map/np.max(background_map)
@@ -378,14 +371,12 @@ def intensity_traces(movie_array,segmentation_map,objects, background_map=None):
                 int_traces[i] += movie_array[:,x,y]
     return int_traces
 
-frame_intensity1 = intensity_traces(movie_arr_cut, segmentation_map, objects)
 
-
+frame_intensity1 = intensity_traces(movie_arr_cut, segmentation_map, objects,background_map=bkg)    
 
 #%%
 
-
-def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, summed=1):
+def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, summed=1,thresholds=None):
     col = 4  # Fixed number of columns for 16 plots
     row = 4  # Fixed number of rows for 16 plots
     bins = 20  # Define the number of bins for the histogram, adjust as needed
@@ -393,7 +384,7 @@ def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, su
     fig = plt.figure(figsize=(10, 5))
     gs = gridspec.GridSpec(row, 3 * col, width_ratios=[8, 1, 2.2] * col, wspace=0, hspace=0.0)
     hists = np.zeros((frame_intensity.shape[0], bins))
-    thresholds = np.zeros((frame_intensity.shape[0], 2))
+    #thresholds = np.zeros((frame_intensity.shape[0], 2))
 
     for idx in range(num_plots):
         current_row = idx // col
@@ -416,13 +407,16 @@ def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, su
             #img_ax.set_yticks([max_val * 0.25, max_val * 0.5, max_val * 0.75])
             #img_ax.set_yticklabels([''] * 3)   
             #img_ax.set_xticks([])
+            if thresholds is not None:
+                img_ax.hlines(thresholds[start_idx + idx], 0, 60, 'black')
+
             img_ax.set_ylim([0, max_val])
             #img_ax.set_xlim([0, (nframes/summed*nstep*int(tint)*10**-3*summed)/30])
             img_ax.tick_params(axis='y', direction='in')
             bin_edges = np.linspace(0, max_val, bins + 1)
             hist, _ = np.histogram(frame_intensity[start_idx + idx], bins=bin_edges)
             hists[start_idx + idx] += hist
-
+            
 
             hist_ax = fig.add_subplot(gs[current_row, 3 * current_col + 1])
             hist_ax.barh(bin_edges[:-1], hist / max(hist), height=np.diff(bin_edges), color='#600000ff', alpha=0.5, align='edge', edgecolor='black', linewidth=0.5)
@@ -452,7 +446,7 @@ def intensity_plots(frame_intensity, start_idx, num_plots, return_hist=False, su
         return hists, thresholds
 
 hists = np.zeros((frame_intensity1.shape[0], 20))
-thresholds = np.zeros((frame_intensity1.shape[0], 2))
+#thresholds = np.zeros((frame_intensity1.shape[0], 2))
 num_plots=len(frame_intensity1)
 num_figures = (num_plots + 15) // 16  # Calculate the number of figures needed
 for i in range(num_figures):
@@ -460,13 +454,400 @@ for i in range(num_figures):
     # Determine how many plots to draw for this figure
     plots_in_current_figure = min(16, num_plots - start_idx)
     
-    hist,threshold = intensity_plots(frame_intensity1, start_idx, num_plots, 
-                                     return_hist=True, summed = 1)
+    hist,threshold = intensity_plots(frame_intensity2, start_idx, num_plots, 
+                                     return_hist=True, summed=4,thresholds=thresholds)
     hists += hist
-
 
 #%%
 
+#CODE FOR DECAY CURVES
+dec_curves = decay_curves(movie_arr_cut, segmentation_map, nstep, nframes, total_image_cut,objects)
+
+
+#%%
+# Calculate grid size
+# Function to plot decay curves
+def plot_decay_curves(dec_curves, start_idx, num_plots,fit=None,title=None):
+    col = 4  # Fixed number of columns for 16 plots
+    row = 4  # Fixed number of rows for 16 plots
+    
+    fig = plt.figure(figsize=(10, 5))
+    gs = gridspec.GridSpec(row, 2 * col, width_ratios=[8, 3] * col, wspace=0, hspace=0.0)
+
+    plt.suptitle(title)
+    plt.ylabel(r'Intensity (normalized)')
+    
+    plt.gca().yaxis.set_label_coords(-0.05, 0.5)  # (x, y) coordinates
+    for spine in ['right', 'top', 'left', 'bottom']:
+        plt.gca().spines[spine].set_visible(False)
+    plt.xticks([])  # Remove x-axis ticks
+    plt.yticks([])  # Remove y-axis ticks
+    #ax.set_title(f'QD {start_idx + idx}')
+    # Flatten axes array for easy iteration
+
+    for idx in range(num_plots):
+        current_row = idx // col
+        current_col = idx % col
+        if start_idx + idx >= dec_curves.shape[0]:
+            break
+        ax = fig.add_subplot(gs[current_row, 2 * current_col])
+        ax.plot(tstep * np.arange(0, dec_curves.shape[1]), dec_curves[start_idx + idx],'.', c='royalblue')
+        #print(tstep * np.arange(0, dec_curves.shape[1],0.))
+
+        if fit is not None:
+            fit_list = fit if isinstance(fit, list) else [fit]
+            for f in fit_list:
+                # if f.shape[1] == 3:
+                #     ax.plot(tstep * np.arange(0, dec_curves.shape[1]), 
+                #             model_snel(datat, *f[start_idx + idx]), c='orangered')
+                if f.shape[1] == 3:
+                    ax.plot(tstep * np.arange(0, dec_curves.shape[1],0.01)[:-100], 
+                            model_snel(tstep * np.arange(0, dec_curves.shape[1],0.01)[:-100], *f[start_idx + idx]), c='orangered')
+                elif f.shape[1] == 2:
+                    ax.plot(np.roll(tstep * np.arange(0, dec_curves.shape[1]), 
+                                    -np.where(dec_curves[start_idx + idx] == np.max(dec_curves[start_idx + idx]))[0][0])[:-1], 
+                            mono_exp(datat, *f[start_idx + idx])[:-1],  c='green')
+                elif f.shape[1] == 5:
+                    ax.plot(np.roll(tstep * np.arange(0, dec_curves.shape[1]), 
+                                    -np.where(dec_curves[start_idx + idx] == np.max(dec_curves[start_idx + idx]))[0][0])[:-2], 
+                            double_exp(datat, *f[start_idx + idx])[:-2], c='yellow')        
+
+
+        if current_row < row:    
+
+            ax.set_yscale('log')
+            #ax.set_xlabel(r'$\tau$ (ns)')
+    
+            formatter = ScalarFormatter(useMathText=True)
+            formatter.set_scientific(True)
+            formatter.set_powerlimits((-1, 1))
+    
+            ax.yaxis.set_major_formatter(formatter)
+            ax.yaxis.set_minor_formatter(formatter)
+    
+            max_value = np.max(dec_curves[start_idx + idx])
+            min_value = np.min(dec_curves[start_idx + idx])
+            range_value = max_value - min_value
+            power = np.floor(np.log10(max_value)).astype(int)
+    
+            # Check the range and set tick intervals accordingly
+            if range_value < 10**power:
+                major_tick_interval = 10 ** power * 0.2
+                minor_tick_interval = major_tick_interval / 2
+            else: 
+                major_tick_interval = 10 ** power
+                minor_tick_interval = major_tick_interval / 2
+            ax.set_xticks([])
+            
+            ax.set_yticks([])
+            ax.set_yticks([round(max_value,1)])
+            ax.set_yticklabels([f'{round(max_value / 1000,1)}'], fontproperties=font_prop)
+            
+            ax.tick_params(axis='y', which='minor', labelleft=False)
+
+            maxi = tstep * dec_curves.shape[1]
+            interval = 10
+            xticks = list(range(0, int(maxi) + interval, interval))
+            xticklabels = [str(tick) for tick in xticks]
+            ax.set_xlim([0,np.max(xticks)])
+
+
+            #ax.ticklabel_format(style='scientific', axis='y', scilimits=(-1, 1))
+        if current_row == 0:
+            ax.set_title('$\\mathdefault{{10^3}}$',loc='left', fontproperties=font_prop)
+
+        if current_row == row - 1:
+            ax.set_xlabel(r'$\tau$ (ns)', fontproperties=font_prop)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xticklabels, fontproperties=font_prop)  # Set the labels with the custom font
+            ax.xaxis.set_major_locator(MultipleLocator(20))
+            ax.xaxis.set_minor_locator(MultipleLocator(10))
+
+
+    plt.tight_layout()
+    plt.show()
+
+
+#%%
+num_plots=len(dec_curves)
+# Check the number of plots and call the function accordingly
+num_figures = (num_plots + 15) // 16  # Calculate the number of figures needed
+for i in range(num_figures):
+    start_idx = i * 16
+    # Determine how many plots to draw for this figure
+    plots_in_current_figure = min(16, num_plots - start_idx)
+    plot_decay_curves(dec_curves, start_idx, plots_in_current_figure,title=f'Decay Curves page:{i+1}')
+
+#%%
+
+plt.plot(dec_curves.T,alpha=0.1)
+plt.yscale('log')
+
+#%%fitten aan model met convolutie
+
+a =time.perf_counter()
+datat = np.linspace(0, tlaser - tstep, num=int(nstep))
+
+model_snel_popt = np.zeros((len(objects),3))
+
+for i, datai in enumerate(dec_curves):
+    try:
+        model_snel_popt[i],_ = curve_fit(model_snel, datat, datai,p0=[85,1/60,100],bounds=([0,0,0],[100000,0.4,10_000_000]))
+    except RuntimeError as e:
+        print(f"Fout bij fitten decaycurve {i}: {e}")
+        continue
+
+print(f'Tijd nodig voor fit {time.perf_counter() - a}')
+ 
+inv_model_snel_popt = 1 / model_snel_popt.T[1]
+sorted_indices = np.argsort(-inv_model_snel_popt)  # Use negative sign for descending order
+
+# Sort inv_mono_popt and dec_curves using the sorted indices
+sorted_inv_model_snel_popt = model_snel_popt[sorted_indices]
+sorted_dec_curves = dec_curves[sorted_indices]
+num_figures = (num_plots + 15) // 16  # Calculate the number of figures needed
+for i in range(num_figures):
+    start_idx = i * 16
+    # Determine how many plots to draw for this figure
+    plots_in_current_figure = min(16, num_plots - start_idx)
+    plot_decay_curves(sorted_dec_curves, start_idx, plots_in_current_figure,fit=sorted_inv_model_snel_popt)
+#%%
+# Create a figure and axis
+fig, ax = plt.subplots(figsize=(4, 4))
+
+# Plot histograms
+ax.hist(1 / sorted_inv_model_snel_popt.T[1][32:], bins=range(0, 75, 5),  label="Data 1", edgecolor='black', color='lightblue')
+ax.hist(reciprocals, bins=range(0, 75, 5), label="Reciprocals", edgecolor='black', color='orangered')
+
+# Optional: Uncomment to add vertical line
+# ax.vlines(mean_reciprocal, 0, 100, color='black', label="Mean Reciprocal")
+
+# Set limits
+ax.set_ylim([0, 80])
+ax.set_xlim([0, 75])
+
+# Set major and minor locators for y-axis
+ax.yaxis.set_major_locator(MultipleLocator(10))  # Major ticks every 10 units
+ax.yaxis.set_minor_locator(MultipleLocator(5))   # Minor ticks every 5 units
+
+# Customize y-axis tick parameters
+ax.tick_params(axis='y', which='major', labelsize=10)
+ax.tick_params(axis='y', which='minor', labelsize=8)
+
+# Set major and minor locators for x-axis
+ax.xaxis.set_major_locator(MultipleLocator(10))  # Major ticks every 10 units
+ax.xaxis.set_minor_locator(MultipleLocator(5))   # Minor ticks every 5 units
+
+# Customize x-axis tick parameters
+ax.tick_params(axis='x', which='major', labelsize=10)
+ax.tick_params(axis='x', which='minor', labelsize=8)
+ax.legend()
+
+#%% fitten aan simpel monoexponentieel verval om lifetimes te vergelijken met convolutie fit
+datat = np.linspace(0, tlaser - tstep, num=int(nstep))
+datat = np.arange(0, tstep*nstep, tstep)
+
+
+def mono_exp(t_array,k,I):
+    """Monoexponentieel verval zonder achtergrond"""
+    return I*np.exp(-k*t_array)
+
+
+mono_popt = np.zeros((len(objects),2))
+
+for i, datai in enumerate(dec_curves):
+    try:
+        datai = np.roll(datai,-np.where(datai==np.max(datai))[0][0])
+        mono_popt[i],_ = curve_fit(mono_exp, datat[:][1:-2], datai[:][1:-2],p0=[1/100,1_000_000],sigma=np.sqrt(datai[:][1:-2]),bounds=([0,0],[0.2,100_000_000]))
+        #mono_popt[i],_ = curve_fit(mono_exp, datat[:-1], datai[:-1],sigma=np.sqrt(datai[:-1]))
+    except RuntimeError as e:
+        print(f"Fout bij fitten decaycurve {i}: {e}")
+        continue
+
+inv_mono_popt = 1 / mono_popt.T[0]
+sorted_indices = np.argsort(-inv_mono_popt)  # Use negative sign for descending order
+
+# Sort inv_mono_popt and dec_curves using the sorted indices
+sorted_inv_mono_popt = mono_popt[sorted_indices]
+sorted_dec_curves = dec_curves[sorted_indices]
+
+num_figures = (num_plots + 15) // 16  # Calculate the number of figures needed
+for i in range(num_figures):
+    start_idx = i * 16
+    # Determine how many plots to draw for this figure
+    plots_in_current_figure = min(16, num_plots - start_idx)
+    plot_decay_curves(sorted_dec_curves, start_idx, plots_in_current_figure,fit=sorted_inv_mono_popt)
+
+plt.tight_layout()
+#%%
+#extra code
+plot_segmap(segmentation_map)
+#%%
+plot_branches(total_image_cut, deblend_info[0], deblend_info[1]) # shows also the filtered objects so you can see what is filtered
+
+#%%
+
+def intensity_traces(movie_array,segmentation_map,objects, nsteps=1, background_map=None):
+    """Neemt de locaties van quantum dots gedetecteerd door sep en 
+    bepaalt de intensity traces van de gevonden quantum dots
+    dit gebeurt door het optellen van intensity traces van de losse pixels"""
+    
+    if nsteps > 1:
+        movie_array = np.array([np.sum(movie_array[idx:idx+nstep], axis=0) for idx in range(0, movie_array.shape[0], nstep)])
+        
+    
+    int_traces = np.zeros((len(objects),movie_array.shape[0]))
+    if background_map is not None:
+        norm_bkg_map  = background_map/np.max(background_map)
+        for i ,key in enumerate(objects): 
+            loc = np.array(np.where(segmentation_map == key)).T
+            for x,y in loc:
+                int_traces[i] += movie_array[:,x,y]-(background_map[x,y]/movie_array.shape[0]) 
+    else:
+        for i ,key in enumerate(objects): 
+            loc = np.array(np.where(segmentation_map == key)).T
+            for x,y in loc:
+                int_traces[i] += movie_array[:,x,y]
+    return int_traces
+
+
+frame_intensity1 = intensity_traces(movie_arr_cut, segmentation_map, objects, nsteps=nstep)    
+
+
+
+#%%
+datat = np.arange(0, tstep*nstep, tstep)
+def average_lifetimes(movie_array, segmentation_map, objects, nsteps):
+    #lt_arr = (movie_array.reshape((-1, nsteps))
+    
+    
+    lt_array = np.zeros((len(objects),movie_array.shape[0]))
+    for i ,key in enumerate(objects): 
+        loc = np.array(np.where(segmentation_map == key)).T
+        for x,y in loc:
+            lt_array[i] += movie_array[:,x,y]
+    
+    lt_array = lt_array.reshape((len(objects), -1, nsteps))
+    lt_array[lt_array> 0] = np.log(lt_array[lt_array> 0]) 
+    
+    lt_traces = np.zeros((len(objects), lt_array.shape[1]))
+    
+    for obj_idx, lt in enumerate(lt_array):
+        k, A_log = np.polyfit(datat, lt.T, 1)
+        lt_traces[obj_idx] = -1/k
+  
+                
+    return lt_traces
+        
+lifetime_traces = average_lifetimes(movie_arr_cut, segmentation_map, objects, nstep)
+
+#%%
+def average_lifetimes(movie_array, segmentation_map, objects, nsteps):
+    #lt_arr = (movie_array.reshape((-1, nsteps))
+    
+    
+    lt_array = np.zeros((len(objects),movie_array.shape[0]))
+    for i ,key in enumerate(objects): 
+        loc = np.array(np.where(segmentation_map == key)).T
+        for x,y in loc:
+            lt_array[i] += movie_array[:,x,y]
+    
+    lt_array = lt_array.reshape((len(objects), -1, nsteps))
+    
+    lt_traces = np.zeros((len(objects), lt_array.shape[1]))
+    
+    for obj_idx, lt in enumerate(lt_array):
+        X = np.column_stack((np.ones(nsteps), np.arange(nsteps)))
+        A = X.T.dot(X)
+        Y = X.T.dot(lt.T)
+
+        beta = np.linalg.solve(A, Y)
+        
+        
+        lt_traces[obj_idx] = -1/beta[1]
+                
+    return lt_traces
+        
+lifetime_traces = average_lifetimes(movie_arr_cut, segmentation_map, objects, nstep)
+
+#%%
+
+def average_lifetimes(movie_array, segmentation_map, objects, nsteps):
+    #lt_arr = (movie_array.reshape((-1, nsteps))
+    
+    lt_array = np.zeros((len(objects),movie_array.shape[0]))
+    for i ,key in enumerate(objects): 
+        loc = np.array(np.where(segmentation_map == key)).T
+        for x,y in loc:
+            lt_array[i] += movie_array[:,x,y]
+    
+    lt_traces = np.zeros((len(objects), lt_array.shape[1]//nsteps))
+    
+    x = np.arange(0, nsteps*tstep, tstep)
+    print(x)
+    for obj_idx, lt in enumerate(lt_array[:20]):
+        lt_trace = np.zeros(lt_array.shape[1]//nsteps)
+        for idx,  b in enumerate(range(0, lt_array.shape[1], nsteps)):
+            try:
+                popt, pcov = curve_fit(mono_exp, x, lt[b:b+nsteps], bounds = [0, [1, np.inf]], p0=[1/30, 100], maxfev=10000)
+                guess = popt
+                lt_trace[idx] = 1/popt[0]
+            except:
+                pass
+            
+        
+        lt_traces[obj_idx] = lt_trace
+        
+    return lt_traces
+        
+lifetime_traces = average_lifetimes(movie_arr_cut, segmentation_map, objects, nstep)
+
+
+#%%
+def FLID_new(intensity_traces, lifetime_traces):
+    bin_in = intensity_traces
+    avg_lt = lifetime_traces
+    
+    for f in range(bin_in.shape[0]):
+        
+        H, X, Y = np.histogram2d(avg_lt[f], bin_in[f], bins=[np.arange(0, 100, 2), np.arange(0, 200, 5)])
+        H = H.T
+        XX,YY = np.meshgrid(X, Y)
+        fig, ax = plt.subplots(figsize=(4,4))
+        ax.pcolormesh(XX, YY, H)
+        plt.show()
+    
+FLID_new(frame_intensity1, lifetime_traces)
+    #%%
+#sneller
+import numpy as np
+import matplotlib.pyplot as plt
+
+def FLID_new(intensity_traces, lifetime_traces):
+    bin_in = intensity_traces
+    avg_lt = lifetime_traces
+    
+    # Precompute histogram bin edges
+    x_bins = np.arange(0, 100, 2)
+    y_bins = np.arange(0, 200, 5)
+    
+    # Precompute meshgrid for plotting (no need to do this inside the loop)
+    XX, YY = np.meshgrid(x_bins, y_bins)
+    
+    for f in range(bin_in.shape[0]):
+        # Compute 2D histogram and transpose to match pcolormesh expectations
+        H, _, _ = np.histogram2d(avg_lt[f], bin_in[f], bins=[x_bins, y_bins])
+        H = H.T
+        
+        # Plot the heatmap
+        fig, ax = plt.subplots(figsize=(4, 4))
+        ax.pcolormesh(XX, YY, H, shading='auto')  # 'auto' helps with performance
+        
+        # Optionally, you could skip plt.show() if you're doing batch plotting later
+        plt.show()
+
+# Example usage:
+FLID_new(frame_intensity1, lifetime_traces)
 
 
 
@@ -771,12 +1152,6 @@ FLID(av_life, segment_sums, 0.5, 25)
 
 #%%
 #CODE FOR DECAY CURVES
-from matplotlib import font_manager
-font_path = r'C:/Windows/Fonts/FRABK.ttf'  # Update this with the path to your font file
-font_prop = font_manager.FontProperties(fname=font_path)
-plt.rcParams['font.family'] = font_prop.get_name()
-plt.rcParams['font.weight'] = font_prop.get_weight()
-plt.rcParams['font.size'] = font_prop.get_size()
 # Calculate grid size
 # Function to plot decay curves
 def plot_decay_curves(dec_curves, start_idx, num_plots,fit=None,title=None):
@@ -803,23 +1178,26 @@ def plot_decay_curves(dec_curves, start_idx, num_plots,fit=None,title=None):
         if start_idx + idx >= dec_curves.shape[0]:
             break
         ax = fig.add_subplot(gs[current_row, 2 * current_col])
-        ax.plot(tstep * np.arange(0, dec_curves.shape[1]), dec_curves[start_idx + idx], c='royalblue')
-
+        ax.plot(tstep * np.arange(0, dec_curves.shape[1]), dec_curves[start_idx + idx],'.', c='royalblue')
+        #print(tstep * np.arange(0, dec_curves.shape[1],0.))
 
         if fit is not None:
             fit_list = fit if isinstance(fit, list) else [fit]
             for f in fit_list:
+                # if f.shape[1] == 3:
+                #     ax.plot(tstep * np.arange(0, dec_curves.shape[1]), 
+                #             model_snel(datat, *f[start_idx + idx]), c='orangered')
                 if f.shape[1] == 3:
-                    ax.plot(tstep * np.arange(0, dec_curves.shape[1]), 
-                            model_snel(datat, *f[start_idx + idx]), '.', c='orangered')
+                    ax.plot(tstep * np.arange(0, dec_curves.shape[1],0.01)[:-100], 
+                            model_snel(tstep * np.arange(0, dec_curves.shape[1],0.01)[:-100], *f[start_idx + idx]), c='orangered')
                 elif f.shape[1] == 2:
                     ax.plot(np.roll(tstep * np.arange(0, dec_curves.shape[1]), 
-                                    -np.where(dec_curves[start_idx + idx] == np.max(dec_curves[start_idx + idx]))[0][0])[:-2], 
-                            mono_exp(datat, *f[start_idx + idx])[:-2], '.', c='green')
+                                    -np.where(dec_curves[start_idx + idx] == np.max(dec_curves[start_idx + idx]))[0][0])[:-1], 
+                            mono_exp(datat, *f[start_idx + idx])[:-1],  c='green')
                 elif f.shape[1] == 5:
                     ax.plot(np.roll(tstep * np.arange(0, dec_curves.shape[1]), 
                                     -np.where(dec_curves[start_idx + idx] == np.max(dec_curves[start_idx + idx]))[0][0])[:-2], 
-                            double_exp(datat, *f[start_idx + idx])[:-2], '.', c='yellow')        
+                            double_exp(datat, *f[start_idx + idx])[:-2], c='yellow')        
 
 
         if current_row < row:    
@@ -877,7 +1255,7 @@ def plot_decay_curves(dec_curves, start_idx, num_plots,fit=None,title=None):
     plt.show()
 
 dec_curves = decay_curves(movie_arr_cut, segmentation_map, nstep, nframes, total_image_cut,objects)
-
+#%%
 num_plots=len(dec_curves)
 # Check the number of plots and call the function accordingly
 num_figures = (num_plots + 15) // 16  # Calculate the number of figures needed
@@ -887,6 +1265,10 @@ for i in range(num_figures):
     plots_in_current_figure = min(16, num_plots - start_idx)
     plot_decay_curves(dec_curves, start_idx, plots_in_current_figure,title=f'Decay Curves page:{i+1}')
 
+#%%
+
+plt.plot(dec_curves.T,alpha=0.1)
+plt.yscale('log')
 
 #%%fitten aan model met convolutie
 
@@ -904,19 +1286,58 @@ for i, datai in enumerate(dec_curves):
 
 print(f'Tijd nodig voor fit {time.perf_counter() - a}')
  
+inv_model_snel_popt = 1 / model_snel_popt.T[1]
+sorted_indices = np.argsort(-inv_model_snel_popt)  # Use negative sign for descending order
 
+# Sort inv_mono_popt and dec_curves using the sorted indices
+sorted_inv_model_snel_popt = model_snel_popt[sorted_indices]
+sorted_dec_curves = dec_curves[sorted_indices]
 num_figures = (num_plots + 15) // 16  # Calculate the number of figures needed
 for i in range(num_figures):
     start_idx = i * 16
     # Determine how many plots to draw for this figure
     plots_in_current_figure = min(16, num_plots - start_idx)
-    plot_decay_curves(dec_curves, start_idx, plots_in_current_figure,fit=model_snel_popt)
+    plot_decay_curves(sorted_dec_curves, start_idx, plots_in_current_figure,fit=sorted_inv_model_snel_popt)
+#%%
+# Create a figure and axis
+fig, ax = plt.subplots(figsize=(4, 4))
 
+# Plot histograms
+ax.hist(1 / sorted_inv_model_snel_popt.T[1][32:], bins=range(0, 75, 5),  label="Data 1", edgecolor='black', color='lightblue')
+ax.hist(reciprocals, bins=range(0, 75, 5), label="Reciprocals", edgecolor='black', color='orangered')
+
+# Optional: Uncomment to add vertical line
+# ax.vlines(mean_reciprocal, 0, 100, color='black', label="Mean Reciprocal")
+
+# Set limits
+ax.set_ylim([0, 80])
+ax.set_xlim([0, 75])
+
+# Set major and minor locators for y-axis
+ax.yaxis.set_major_locator(MultipleLocator(10))  # Major ticks every 10 units
+ax.yaxis.set_minor_locator(MultipleLocator(5))   # Minor ticks every 5 units
+
+# Customize y-axis tick parameters
+ax.tick_params(axis='y', which='major', labelsize=10)
+ax.tick_params(axis='y', which='minor', labelsize=8)
+
+# Set major and minor locators for x-axis
+ax.xaxis.set_major_locator(MultipleLocator(10))  # Major ticks every 10 units
+ax.xaxis.set_minor_locator(MultipleLocator(5))   # Minor ticks every 5 units
+
+# Customize x-axis tick parameters
+ax.tick_params(axis='x', which='major', labelsize=10)
+ax.tick_params(axis='x', which='minor', labelsize=8)
+ax.legend()
 
 #%% fitten aan simpel monoexponentieel verval om lifetimes te vergelijken met convolutie fit
+datat = np.linspace(0, tlaser - tstep, num=int(nstep))
+datat = np.arange(0, tstep*nstep, tstep)
+
+
 def mono_exp(t_array,k,I):
     """Monoexponentieel verval zonder achtergrond"""
-    return I*np.exp(-k*t_array) # + bg
+    return I*np.exp(-k*t_array)
 
 
 mono_popt = np.zeros((len(objects),2))
@@ -924,26 +1345,72 @@ mono_popt = np.zeros((len(objects),2))
 for i, datai in enumerate(dec_curves):
     try:
         datai = np.roll(datai,-np.where(datai==np.max(datai))[0][0])
-        mono_popt[i],_ = curve_fit(mono_exp, datat[:-1], datai[:-1],p0=[1/100,1_000_000],bounds=([0,0],[0.2,100_000_000]))
+        mono_popt[i],_ = curve_fit(mono_exp, datat[:][1:-2], datai[:][1:-2],p0=[1/100,1_000_000],sigma=np.sqrt(datai[:][1:-2]),bounds=([0,0],[0.2,100_000_000]))
         #mono_popt[i],_ = curve_fit(mono_exp, datat[:-1], datai[:-1],sigma=np.sqrt(datai[:-1]))
     except RuntimeError as e:
         print(f"Fout bij fitten decaycurve {i}: {e}")
         continue
 
+inv_mono_popt = 1 / mono_popt.T[0]
+sorted_indices = np.argsort(-inv_mono_popt)  # Use negative sign for descending order
+
+# Sort inv_mono_popt and dec_curves using the sorted indices
+sorted_inv_mono_popt = mono_popt[sorted_indices]
+sorted_dec_curves = dec_curves[sorted_indices]
 
 num_figures = (num_plots + 15) // 16  # Calculate the number of figures needed
 for i in range(num_figures):
     start_idx = i * 16
     # Determine how many plots to draw for this figure
     plots_in_current_figure = min(16, num_plots - start_idx)
-    plot_decay_curves(dec_curves, start_idx, plots_in_current_figure,fit=mono_popt)
+    plot_decay_curves(sorted_dec_curves, start_idx, plots_in_current_figure,fit=sorted_inv_mono_popt)
 
 plt.tight_layout()
+#%%
+k_tot = np.array([0.034, 0.03, 0.031, 0.038, 0.048, 0.042, 0.053, 0.040, 0.03, 0.049])
+
+# Compute the reciprocals of each element in k_tot
+reciprocals = 1 / k_tot
+
+# Take the mean of the reciprocals
+mean_reciprocal = np.mean(reciprocals)
+
+print(mean_reciprocal)
+#%%
+fig, ax = plt.subplots(figsize=(4, 4))
+print(np.mean(1 / sorted_inv_mono_popt.T[0][48:]))
+# Plot histograms
+ax.hist(1 / sorted_inv_mono_popt.T[0][48:], bins=range(0, 75, 5),  label="Data 1", edgecolor='black', color='lightblue')
+#ax.hist(reciprocals, bins=range(0, 75, 5), label="Reciprocals", edgecolor='black', color='orangered')
+#plt.vlines(mean_reciprocal, 0, 100,'black')
+
+# Optional: Uncomment to add vertical line
+# ax.vlines(mean_reciprocal, 0, 100, color='black', label="Mean Reciprocal")
+
+# Set limits
+ax.set_ylim([0, 80])
+ax.set_xlim([0, 75])
+
+# Set major and minor locators for y-axis
+ax.yaxis.set_major_locator(MultipleLocator(10))  # Major ticks every 10 units
+ax.yaxis.set_minor_locator(MultipleLocator(5))   # Minor ticks every 5 units
+
+# Customize y-axis tick parameters
+ax.tick_params(axis='y', which='major', labelsize=10)
+ax.tick_params(axis='y', which='minor', labelsize=8)
+
+# Set major and minor locators for x-axis
+ax.xaxis.set_major_locator(MultipleLocator(10))  # Major ticks every 10 units
+ax.xaxis.set_minor_locator(MultipleLocator(5))   # Minor ticks every 5 units
+
+# Customize x-axis tick parameters
+ax.tick_params(axis='x', which='major', labelsize=10)
+ax.tick_params(axis='x', which='minor', labelsize=8)
+#ax.legend()
+
 
 #%%
-plt.hist(1/mono_popt.T[0],range(0,100,10))
-#%%
-plt.hist(1/model_snel_popt.T[1],range(0,100,10))
+plt.hist(1/model_snel_popt.T[1],range(0,100,5))
 #%%
 
 def double_exp(t_array,k1,I1,k2,I2,bk):

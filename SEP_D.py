@@ -11,31 +11,47 @@ from scipy.ndimage import median_filter
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.interpolate import griddata
-
+ 
 ###############################################################################
 #background correction code
 
 def sigma_clipping(data, sigma, kappa=3):
-    """Perform kappa-sigma clipping on the data until convergence."""
+    """Perform kappa-sigma clipping on the data until convergence, 
+    and compare final sigma with the first iteration's sigma (20% change)."""
     iterations = 0
+    mean = np.mean(data)
+    std = np.std(data)
+    first_std = std  # Store the first standard deviation value
+    
     while True:
-        mean = np.mean(data)
-        std = np.std(data)
         median = np.median(data)
-        clipped_data = data[(data > median - kappa * std) & (data < median + kappa * std)]
+        mean = np.mean(data)
+        clipped_data = data[(data > (3 * median - 2 * mean) - kappa * std) & (data < (3 * median - 2 * mean) + kappa * std)]
         new_std = np.std(clipped_data)
-        if abs(new_std - std) / std < 0.2:  # Convergence criterion: change in std < 20%
+        
+        
+        # Check if the change in std is less than 1% (convergence)
+        if abs(new_std - std) / std < 0.01:
             break
+        
+        # Update data and std for the next iteration
+        
         data = clipped_data
+        std = new_std
         iterations += 1
-    return clipped_data, iterations
+    
+    # After the loop finishes, compare the final std with the first std
+    if abs(new_std - first_std) / first_std < 0.20:
+        return data, iterations  # Return the first iteration's result
+    
+    return clipped_data, iterations  # Return the final result
 
 def estimate_background(data, sigma):
     """Estimate the background using a combination of kappa-sigma clipping and mode estimation."""
     clipped_data, iterations = sigma_clipping(data, sigma)
     median = np.median(clipped_data)
     mean = np.mean(clipped_data)
-    mode = 2.5 * median - 1.5 * mean
+    mode = 3 * median - 2 * mean
     return mode, iterations
 
 def bilinear_interpolate(grid_x, grid_y, values, xi, yi):
@@ -43,9 +59,9 @@ def bilinear_interpolate(grid_x, grid_y, values, xi, yi):
     return griddata((grid_x, grid_y), values, (xi, yi), method='linear')
 
 def background_subtraction(image, mesh_size=32, sigma=2, background_map=False, plot_sigma_clipping=False):
-     """Compute the background map for the image."""
+    """Compute the background map for the image."""
     ny, nx = image.shape
-    background = np.zeros_like(image)
+    background = np.zeros_like(image, dtype=np.int32)
     total_iterations = []
 
     # Estimate background in each mesh
